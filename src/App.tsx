@@ -128,13 +128,21 @@ const StatCard = ({ label, value, icon: Icon, color, trend, trendLabel }: any) =
 
 const Dashboard = () => {
   const [data, setData] = useState<Product[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
   const [seeding, setSeeding] = useState(false);
   
   useEffect(() => {
-    const q = query(collection(db, 'products'), limit(10));
-    return onSnapshot(q, (snapshot) => {
+    const unsubProducts = onSnapshot(query(collection(db, 'products'), limit(10)), (snapshot) => {
       setData(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product)));
     });
+    const unsubSuppliers = onSnapshot(query(collection(db, 'suppliers')), (snapshot) => {
+      setSuppliers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    const unsubOrders = onSnapshot(query(collection(db, 'orders')), (snapshot) => {
+      setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => { unsubProducts(); unsubSuppliers(); unsubOrders(); };
   }, []);
 
   const handleSeed = async () => {
@@ -148,6 +156,16 @@ const Dashboard = () => {
 
   const totalValue = data.reduce((acc, p) => acc + (p.currentStock * p.price), 0);
   const lowStockCount = data.filter(p => p.currentStock <= p.minStockLevel).length;
+
+  const supplierRiskCount = suppliers.reduce((acc, s) => {
+    const activeOrders = orders.filter(o => o.supplierId === s.id && ['pending', 'processing', 'shipped'].includes(o.status));
+    const delays = activeOrders.filter(o => {
+      const createdDate = o.createdAt?.toDate ? o.createdAt.toDate() : new Date(o.createdAt);
+      const daysSinceCreation = Math.floor((new Date().getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
+      return daysSinceCreation > (s.leadTime || 14);
+    }).length;
+    return acc + (delays > 0 ? 1 : 0);
+  }, 0);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -176,7 +194,7 @@ const Dashboard = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <StatCard label="Inventory Valuation" value={data.length > 0 ? `$${totalValue.toLocaleString()}` : "$0"} icon={Wallet} color="bg-blue-500" trend={data.length > 0 ? 4.2 : null} />
-        <StatCard label="Active Inbound Orders" value="84" icon={ShoppingCart} color="bg-purple-500" trend={12} trendLabel="In Transit" />
+        <StatCard label="Vendor Risk" value={supplierRiskCount > 0 ? `${supplierRiskCount} Delayed` : "Nominal"} icon={Factory} color="bg-red-500" trend={supplierRiskCount} trendLabel="Critical Delays" />
         <StatCard label="AI System Health" value={data.length > 0 ? `${lowStockCount} Alerts` : "Nominal"} icon={AlertTriangle} color="bg-orange-500" trend={lowStockCount > 0 ? -1 : 0} trendLabel={data.length > 0 ? "Requires Action" : "No issues"} />
       </div>
 
@@ -818,6 +836,19 @@ const Orders = () => {
     }
   };
 
+  const handleDeliverOrder = async (orderId: string) => {
+    try {
+      const orderRef = doc(db, 'orders', orderId);
+      await updateDoc(orderRef, {
+        status: 'delivered',
+        deliveredAt: Timestamp.now(),
+        updatedAt: Timestamp.now()
+      });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   return (
     <div className="space-y-6">
        <div className="flex justify-between items-center bg-[#111111] border border-white/5 p-8 rounded-2xl shadow-xl">
@@ -895,12 +926,22 @@ const Orders = () => {
               <div className="flex items-center gap-12 text-right">
                 <div>
                    <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest mb-1">Logistics status</p>
-                   <span className={cn(
-                     "text-[10px] font-black uppercase px-3 py-1 rounded-full",
-                     o.status === 'delivered' ? "text-green-400 bg-green-500/10 border border-green-500/20" : "text-blue-400 bg-blue-500/10 border border-blue-500/20"
-                   )}>
-                     {o.status}
-                   </span>
+                   <div className="flex items-center gap-2">
+                     <span className={cn(
+                       "text-[10px] font-black uppercase px-3 py-1 rounded-full",
+                       o.status === 'delivered' ? "text-green-400 bg-green-500/10 border border-green-500/20" : "text-blue-400 bg-blue-500/10 border border-blue-500/20"
+                     )}>
+                       {o.status}
+                     </span>
+                     {o.status !== 'delivered' && (
+                       <button 
+                         onClick={() => handleDeliverOrder(o.id)}
+                         className="px-2 py-1 bg-white/5 border border-white/5 rounded text-[8px] font-bold text-white/40 hover:text-green-400 hover:border-green-500/20 transition-all hover:bg-green-500/5 uppercase"
+                       >
+                         Confirm
+                       </button>
+                     )}
+                   </div>
                 </div>
                 <div className="min-w-[120px]">
                   <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest mb-1 text-right">Transaction Value</p>
@@ -918,34 +959,154 @@ const Orders = () => {
 
 const Suppliers = () => {
   const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
 
   useEffect(() => {
-    const q = query(collection(db, 'suppliers'));
-    return onSnapshot(q, (snapshot) => {
+    const unsubSuppliers = onSnapshot(query(collection(db, 'suppliers')), (snapshot) => {
       setSuppliers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
+    const unsubOrders = onSnapshot(query(collection(db, 'orders')), (snapshot) => {
+      setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => { unsubSuppliers(); unsubOrders(); };
   }, []);
 
+  const getSupplierAlerts = (supplierId: string) => {
+    const supplier = suppliers.find(s => s.id === supplierId);
+    if (!supplier) return [];
+    
+    const activeOrders = orders.filter(o => o.supplierId === supplierId && ['pending', 'processing', 'shipped'].includes(o.status));
+    const alerts: any[] = [];
+
+    activeOrders.forEach(order => {
+      const createdDate = order.createdAt?.toDate ? order.createdAt.toDate() : new Date(order.createdAt);
+      const daysSinceCreation = Math.floor((new Date().getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
+      
+      if (daysSinceCreation > (supplier.leadTime || 14)) {
+        alerts.push({
+          type: 'error',
+          message: `Order #${order.id.slice(-4)} exceeds lead time by ${daysSinceCreation - supplier.leadTime} days.`
+        });
+      } else if (daysSinceCreation > (supplier.leadTime * 0.8)) {
+        alerts.push({
+          type: 'warning',
+          message: `Order #${order.id.slice(-4)} approaching lead time limit.`
+        });
+      }
+    });
+
+    return alerts;
+  };
+
+  const getSupplierPerformance = (supplierId: string) => {
+    const supplier = suppliers.find(s => s.id === supplierId);
+    if (!supplier) return { onTimeRate: 0, avgAdherence: 0, totalDelivered: 0 };
+
+    const deliveredOrders = orders.filter(o => o.supplierId === supplierId && o.status === 'delivered' && o.deliveredAt && o.createdAt);
+    if (deliveredOrders.length === 0) return { onTimeRate: 100, avgAdherence: 100, totalDelivered: 0 };
+
+    let onTimeCount = 0;
+    let totalAdherence = 0;
+
+    deliveredOrders.forEach(order => {
+      const created = order.createdAt.toDate ? order.createdAt.toDate() : new Date(order.createdAt);
+      const delivered = order.deliveredAt.toDate ? order.deliveredAt.toDate() : new Date(order.deliveredAt);
+      const actualLeadTime = Math.ceil((delivered.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+      
+      const expectedLeadTime = supplier.leadTime || 14;
+      if (actualLeadTime <= expectedLeadTime) {
+        onTimeCount++;
+      }
+      totalAdherence += (expectedLeadTime / Math.max(actualLeadTime, 1)) * 100;
+    });
+
+    return {
+      onTimeRate: Math.round((onTimeCount / deliveredOrders.length) * 100),
+      avgAdherence: Math.round(totalAdherence / deliveredOrders.length),
+      totalDelivered: deliveredOrders.length
+    };
+  };
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {suppliers.map(s => (
-        <div key={s.id} className="bg-[#111111] border border-white/5 p-8 rounded-2xl hover:border-white/20 transition-all group shadow-xl">
-          <div className="w-10 h-10 bg-white/5 border border-white/5 rounded-lg flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-            <Factory size={20} className="text-white/40" />
-          </div>
-          <h3 className="text-lg font-medium text-white mb-1 tracking-tight">{s.name}</h3>
-          <p className="text-xs text-white/30 mb-6 font-mono tracking-tighter">{s.email}</p>
-          <div className="flex flex-wrap gap-2 mb-8">
-            {s.categories?.map((c: string) => (
-              <span key={c} className="text-[9px] font-black px-2 py-0.5 bg-white/5 border border-white/5 rounded text-white/40 uppercase tracking-widest">{c}</span>
-            ))}
-          </div>
-          <div className="pt-6 border-t border-white/5 flex justify-between items-center text-[10px] uppercase font-bold tracking-widest">
-            <span className="text-white/20">Operational Lead: <span className="text-blue-500">{s.leadTime}D</span></span>
-            <ChevronRight size={14} className="text-white/10" />
-          </div>
-        </div>
-      ))}
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {suppliers.map(s => {
+          const alerts = getSupplierAlerts(s.id);
+          const hasCritical = alerts.some(a => a.type === 'error');
+          const performance = getSupplierPerformance(s.id);
+          
+          return (
+            <div key={s.id} className={cn(
+              "bg-[#111111] border p-8 rounded-2xl hover:border-white/20 transition-all group shadow-xl relative overflow-hidden",
+              hasCritical ? "border-red-500/30" : "border-white/5"
+            )}>
+              {hasCritical && <div className="absolute top-0 right-0 w-24 h-24 bg-red-600/10 blur-2xl -mr-12 -mt-12" />}
+              
+              <div className="flex justify-between items-start mb-6">
+                <div className="w-10 h-10 bg-white/5 border border-white/5 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Factory size={20} className={cn("text-white/40", hasCritical && "text-red-500")} />
+                </div>
+                {alerts.length > 0 && (
+                  <div className="flex items-center gap-1 bg-red-500/10 text-red-500 px-2 py-1 rounded text-[9px] font-black uppercase tracking-widest border border-red-500/20">
+                    <AlertTriangle size={10} />
+                    {alerts.length} Alerts
+                  </div>
+                )}
+              </div>
+
+              <h3 className="text-lg font-medium text-white mb-1 tracking-tight">{s.name}</h3>
+              <p className="text-xs text-white/30 mb-6 font-mono tracking-tighter">{s.email}</p>
+              
+              {/* Performance Metrics Section */}
+              <div className="grid grid-cols-2 gap-3 mb-6 bg-white/[0.02] p-4 rounded-xl border border-white/5">
+                <div>
+                  <p className="text-[8px] font-black text-white/20 uppercase tracking-widest mb-1">On-Time Rate</p>
+                  <p className={cn(
+                    "text-lg font-mono font-bold tracking-tighter",
+                    performance.onTimeRate >= 90 ? "text-green-400" : performance.onTimeRate >= 70 ? "text-orange-400" : "text-red-400"
+                  )}>
+                    {performance.onTimeRate}%
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[8px] font-black text-white/20 uppercase tracking-widest mb-1">Lead Adherence</p>
+                  <p className={cn(
+                    "text-lg font-mono font-bold tracking-tighter",
+                    performance.avgAdherence >= 90 ? "text-blue-400" : "text-white/60"
+                  )}>
+                    {performance.avgAdherence}%
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3 mb-8">
+                {alerts.map((a, i) => (
+                  <div key={i} className={cn(
+                    "p-2 rounded border text-[10px] font-medium flex gap-2",
+                    a.type === 'error' ? "bg-red-500/5 border-red-500/10 text-red-400" : "bg-orange-500/5 border-orange-500/10 text-orange-400"
+                  )}>
+                    <div className="mt-0.5 shrink-0">
+                      {a.type === 'error' ? <X size={10} /> : <AlertTriangle size={10} />}
+                    </div>
+                    {a.message}
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap gap-2 mb-8">
+                {s.categories?.map((c: string) => (
+                  <span key={c} className="text-[9px] font-black px-2 py-0.5 bg-white/5 border border-white/5 rounded text-white/40 uppercase tracking-widest">{c}</span>
+                ))}
+              </div>
+              
+              <div className="pt-6 border-t border-white/5 flex justify-between items-center text-[10px] uppercase font-bold tracking-widest">
+                <span className="text-white/20">SLA Cycle: <span className="text-blue-500">{s.leadTime}D</span></span>
+                <ChevronRight size={14} className="text-white/10" />
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

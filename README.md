@@ -1,24 +1,31 @@
 # SmartChain AI - Deployment Guide
 
-## 🚀 Live Deployment (Netlify)
+## 🚀 Live Deployment (Netlify & Vercel)
 
-This application is ready to be deployed to Netlify as a high-performance SPA.
+This application is optimized for deployment as a high-performance Single Page Application (SPA).
 
-### 1. Build Configuration
-The project uses the following settings (already configured in `netlify.toml`):
+### ⚡ Vercel Deployment
+1. Import this repository into **Vercel**.
+2. **Framework Preset:** Vite (automatically detected).
+3. **Build Command:** `npm run build`
+4. **Output Directory:** `dist`
+5. **Environment Variables:** Add `GEMINI_API_KEY` (Your Google AI Studio API key).
+
+### 🌍 Netlify Deployment
+The project includes a `netlify.toml` with the following:
 - **Build Command:** `npm run build`
 - **Publish Directory:** `dist`
 
-### 2. Environment Variables
-You MUST add the following keys to your Netlify environment variables:
-- `GEMINI_API_KEY`: Your Google AI Studio API key (for demand forecasting and Document AI).
+### 🔑 Environment Variables
+You MUST add the following key to your deployment platform:
+- `GEMINI_API_KEY`: Required for Demand Forecasting and Document AI analysis.
 
-### 3. Firebase Setup (CRITICAL)
+### 🛡️ Firebase Security & Auth (CRITICAL)
 For Google Login to work on your live URL:
 1. Go to the [Firebase Console](https://console.firebase.google.com/).
 2. Select your project: `gen-lang-client-0567822539`.
 3. Navigate to **Authentication** > **Settings** > **Authorized Domains**.
-4. Add your Netlify domain (e.g., `your-app-name.netlify.app`).
+4. Add your deployment domain (e.g., `your-app.vercel.app` or `your-app.netlify.app`).
 
 ## 🧠 Features
 - **AI Forecasting:** Predicts future demand using Gemini-3-Flash.
