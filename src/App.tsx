@@ -7,7 +7,7 @@ import {
   Package, Boxes, TrendingUp, AlertTriangle, Users, ShoppingCart, 
   LayoutDashboard, Search, Bell, Menu, X, Plus, ChevronRight,
   Loader2, Wallet, Factory, Box, FileText, Upload, CheckCircle2,
-  PackageSearch
+  PackageSearch, ShieldAlert, Cpu
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
@@ -954,26 +954,42 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
       setUser(u);
-      setLoading(u === null && loading ? false : false);
+      setLoading(false);
     });
   }, []);
 
   const handleLogin = async () => {
+    setLoginError(null);
     try {
       await signInWithPopup(auth, googleProvider);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
+      if (error.code === 'auth/unauthorized-domain') {
+        setLoginError("This domain is not authorized in Firebase. Please add this URL to 'Authorized Domains' in your Firebase Console.");
+      } else {
+        setLoginError(error.message || "Login failed. Please check your connection.");
+      }
     }
+  };
+
+  const diagnostics = {
+    domain: window.location.hostname,
+    firebase: !!db,
+    gemini: !!process.env.GEMINI_API_KEY,
+    protocol: window.location.protocol,
   };
 
   if (loading) {
     return (
-      <div className="h-screen w-screen bg-black flex items-center justify-center">
-        <Loader2 className="animate-spin text-orange-500" size={48} />
+      <div className="h-screen w-screen bg-black flex flex-col items-center justify-center gap-4">
+        <Loader2 className="animate-spin text-blue-500" size={48} />
+        <p className="text-[10px] uppercase font-black tracking-[0.4em] text-white/20">Initializing SmartChain AI</p>
       </div>
     );
   }
@@ -985,23 +1001,70 @@ export default function App() {
         <motion.div 
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="relative z-10 w-full max-w-md bg-[#111]/80 backdrop-blur-xl border border-zinc-800 p-12 rounded-[50px] shadow-2xl text-center"
+          className="relative z-10 w-full max-w-md bg-[#111]/80 backdrop-blur-xl border border-white/10 p-12 rounded-[50px] shadow-2xl text-center"
         >
-          <div className="w-20 h-20 bg-orange-500 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-2xl shadow-orange-500/20 rotate-12 group-hover:rotate-0 transition-transform">
-            <Package size={40} className="text-black" />
+          <div className="w-20 h-20 bg-blue-600 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-2xl shadow-blue-600/20 rotate-12 transition-transform">
+            <Package size={40} className="text-white" />
           </div>
-          <h1 className="text-4xl font-bold tracking-tight text-white mb-4">SmartChain AI</h1>
-          <p className="text-zinc-500 mb-10 font-medium leading-relaxed italic">
-            Integrated logistics & demand intelligence for the modern supply chain.
+          <h1 className="text-4xl font-light tracking-tight text-white mb-2">SmartChain <span className="text-blue-500">AI</span></h1>
+          <p className="text-sm text-white/40 mb-10 font-medium leading-relaxed italic">
+            Enterprise supply chain intelligence powered by neural inventory logic.
           </p>
+
+          {loginError && (
+            <motion.div 
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-start gap-3 text-left"
+            >
+              <ShieldAlert size={18} className="text-red-500 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-red-400 font-medium leading-relaxed">{loginError}</p>
+            </motion.div>
+          )}
+
           <button 
             onClick={handleLogin}
-            className="w-full py-5 bg-white hover:bg-orange-500 text-black hover:text-white font-bold rounded-3xl transition-all duration-500 flex items-center justify-center gap-3 transform hover:scale-105 active:scale-95 group shadow-xl"
+            className="w-full py-5 bg-white hover:bg-zinc-200 text-black font-bold rounded-3xl transition-all duration-300 flex items-center justify-center gap-3 transform hover:scale-[1.02] active:scale-[0.98] group shadow-xl"
           >
-            <Users size={20} className="group-hover:scale-110 transition-transform" />
-            Continue with Enterprise ID
+            <img src="https://www.google.com/favicon.ico" className="w-4 h-4" alt="Google" />
+            Access Terminal
           </button>
-          <p className="mt-8 text-[10px] text-zinc-600 uppercase tracking-widest font-black serif">Verified by Cloud Security</p>
+
+          <button 
+            onClick={() => setShowDiagnostics(!showDiagnostics)}
+            className="w-full mt-6 py-2 text-[10px] uppercase font-black tracking-widest text-white/20 hover:text-white/40 transition-colors flex items-center justify-center gap-2"
+          >
+            <Cpu size={12} />
+            System Diagnostics
+          </button>
+
+          <AnimatePresence>
+            {showDiagnostics && (
+              <motion.div 
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mt-6 pt-6 border-t border-white/5 space-y-3 overflow-hidden text-[10px] font-mono text-left text-white/30"
+              >
+                <div className="flex justify-between">
+                  <span>DEPLOYMENT NODE:</span>
+                  <span className="text-blue-400 uppercase">{diagnostics.domain}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>FIREBASE CORE:</span>
+                  <span className={diagnostics.firebase ? "text-green-500" : "text-red-500"}>{diagnostics.firebase ? "STABLE" : "DISCONNECTED"}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>GEMINI API KEY:</span>
+                  <span className={diagnostics.gemini ? "text-green-500" : "text-red-500"}>{diagnostics.gemini ? "VALIDATED" : "MISSING"}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>SSL HANDSHAKE:</span>
+                  <span className={diagnostics.protocol === 'https:' ? "text-green-500" : "text-orange-500"}>{diagnostics.protocol === 'https:' ? "SECURE" : "UNSECURE"}</span>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.div>
       </div>
     );
