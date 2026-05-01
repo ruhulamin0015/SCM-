@@ -1,0 +1,87 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isEmailVerified() { return request.auth.token.email_verified == true; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // --- Product Rules ---
+    function isValidProduct(data) {
+      return data.keys().hasAll(['name', 'category', 'unit', 'minStockLevel', 'currentStock', 'price'])
+        && data.name is string && data.name.size() <= 200
+        && data.category is string && data.category.size() <= 100
+        && data.unit is string && data.unit.size() <= 20
+        && data.minStockLevel is number && data.minStockLevel >= 0
+        && data.currentStock is number
+        && data.price is number && data.price >= 0;
+    }
+
+    match /products/{productId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isEmailVerified() && isValidProduct(incoming());
+      allow update: if isSignedIn() && isEmailVerified() && isValidProduct(incoming())
+        && incoming().diff(existing()).affectedKeys().hasAny(['currentStock', 'minStockLevel', 'price', 'name', 'category', 'unit', 'updatedAt']);
+      allow delete: if isSignedIn() && isEmailVerified(); // In a real app, maybe only admins
+    }
+
+    // --- Supplier Rules ---
+    function isValidSupplier(data) {
+      return data.keys().hasAll(['name', 'email'])
+        && data.name is string && data.name.size() <= 200
+        && data.email is string && data.email.size() <= 256;
+    }
+
+    match /suppliers/{supplierId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isEmailVerified() && isValidSupplier(incoming());
+      allow update: if isSignedIn() && isEmailVerified() && isValidSupplier(incoming());
+      allow delete: if isSignedIn() && isEmailVerified();
+    }
+
+    // --- Order Rules ---
+    function isValidOrder(data) {
+      return data.keys().hasAll(['supplierId', 'items', 'status', 'totalAmount'])
+        && data.supplierId is string
+        && data.items is list
+        && data.status in ['pending', 'processing', 'shipped', 'delivered', 'cancelled']
+        && data.totalAmount is number;
+    }
+
+    match /orders/{orderId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isEmailVerified() && isValidOrder(incoming());
+      allow update: if isSignedIn() && isEmailVerified() && isValidOrder(incoming())
+        && (incoming().status != existing().status || incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt', 'items', 'totalAmount']));
+      allow delete: if isSignedIn() && isEmailVerified() && (existing().status == 'pending' || existing().status == 'cancelled');
+    }
+
+    // --- InventoryLog Rules ---
+    function isValidLog(data) {
+       return data.keys().hasAll(['productId', 'change', 'type', 'timestamp'])
+        && data.productId is string
+        && data.change is number
+        && data.type in ['purchase', 'sale', 'adjustment', 'loss'];
+    }
+
+    match /inventoryLogs/{logId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isEmailVerified() && isValidLog(incoming());
+      // Logs are immutable
+      allow update, delete: if false;
+    }
+
+    // --- Forecast Rules ---
+    match /forecasts/{forecastId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isEmailVerified(); // AI updates these
+    }
+  }
+}
